@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ticket to Ride - Live Score</title>
+
+<style>
+body {
+    font-family: Arial;
+    margin: 10px;
+    background: #f5f5f5;
+}
+
+h1 { text-align: center; }
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+}
+
+.player {
+    background: white;
+    border-radius: 10px;
+    padding: 10px;
+    border: 1px solid #ddd;
+}
+
+.player h3 {
+    text-align: center;
+    margin: 0 0 10px 0;
+}
+
+input {
+    width: 70px;
+    text-align: center;
+    margin: 2px 0;
+}
+
+.route-row, .ticket-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.points {
+    font-weight: bold;
+    min-width: 50px;
+}
+
+.summary {
+    margin-top: 20px;
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🚆 Wsiąść do Pociągu - Licznik</h1>
+
+<div id="board" class="grid"></div>
+
+<div id="results" class="summary"></div>
+
+<script>
+
+const PLAYERS = 5;
+const ROUTES = 20;
+const TICKETS = 10;
+
+const players = Array.from({ length: PLAYERS }, (_, i) => ({
+    name: `Gracz ${i + 1}`,
+    routes: Array(ROUTES).fill(0),
+    tickets: Array(TICKETS).fill(0),
+    stations: 0,
+    express: false
+}));
+
+/* ----------------- TAB CONTROL ----------------- */
+
+function handleTab(e, p, r, type) {
+
+    if (e.key !== "Tab") return;
+
+    e.preventDefault();
+
+    let next;
+
+    if (type === "route") {
+
+        const nextPlayer = p + 1;
+
+        if (nextPlayer < players.length) {
+            next = document.querySelector(
+                `[data-type="route"][data-p="${nextPlayer}"][data-r="${r}"]`
+            );
+        } else {
+            next = document.querySelector(
+                `[data-type="route"][data-p="0"][data-r="${r + 1}"]`
+            );
+        }
+    }
+
+    if (type === "ticket") {
+
+        const nextPlayer = p + 1;
+
+        if (nextPlayer < players.length) {
+            next = document.querySelector(
+                `[data-type="ticket"][data-p="${nextPlayer}"][data-r="${r}"]`
+            );
+        } else {
+            next = document.querySelector(
+                `[data-type="ticket"][data-p="0"][data-r="${r + 1}"]`
+            );
+        }
+    }
+
+    if (next) {
+        next.focus();
+        next.select();
+    }
+}
+
+/* ----------------- COLORS ----------------- */
+
+function routePoints(v) {
+    return {1:1,2:2,3:4,4:7,5:10,6:15}[v] || 0;
+}
+
+function routeColor(v) {
+    const colors = {
+        0:"#ffffff",
+        1:"#e9f0ff",
+        2:"#cfe0ff",
+        3:"#a9c4ff",
+        4:"#7ea6f5",
+        5:"#4f7fd6",
+        6:"#3d5a80"
+    };
+    return colors[v] || "#fff";
+}
+
+function ticketColor(v) {
+    if (v > 0) return "#bff3bf";
+    if (v < 0) return "#ffbcbc";
+    return "#ffffff";
+}
+
+function stationBonus(x) {
+    return 12 - x * 4;
+}
+
+/* ----------------- UPDATE ----------------- */
+
+function updateRoute(p,r,el){
+    players[p].routes[r] = parseInt(el.value||0);
+    el.style.background = routeColor(el.value);
+    el.nextElementSibling.textContent = routePoints(el.value)+" pkt";
+    recalc();
+}
+
+function updateTicket(p,r,el){
+    players[p].tickets[r] = parseInt(el.value||0);
+    el.style.background = ticketColor(el.value);
+    recalc();
+}
+
+function updateStation(p,el){
+    players[p].stations = parseInt(el.value||0);
+    el.nextElementSibling.textContent =
+        "+" + stationBonus(el.value) + " pkt";
+    recalc();
+}
+
+function toggleExpress(p,el){
+    players[p].express = el.checked;
+    recalc();
+}
+
+/* ----------------- RENDER ----------------- */
+
+function render() {
+
+    const board = document.getElementById("board");
+    board.innerHTML = "";
+
+    players.forEach((p, pi) => {
+
+        let html = `<div class="player">
+        <h3>${p.name}</h3>
+
+        <b>🚆 Trasy</b><br>`;
+
+        p.routes.forEach((v, ri) => {
+
+            html += `
+            <div class="route-row">
+                <input type="number"
+                    data-type="route"
+                    data-p="${pi}"
+                    data-r="${ri}"
+                    min="0" max="6"
+                    value="${v}"
+                    style="background:${routeColor(v)}"
+                    onkeydown="handleTab(event, ${pi}, ${ri}, 'route')"
+                    oninput="updateRoute(${pi},${ri},this)">
+                <span class="points">${routePoints(v)} pkt</span>
+            </div>`;
+        });
+
+        html += `<hr><b>🎫 Bilety</b><br>`;
+
+        p.tickets.forEach((v, ti) => {
+
+            html += `
+            <div class="ticket-row">
+                <input type="number"
+                    data-type="ticket"
+                    data-p="${pi}"
+                    data-r="${ti}"
+                    value="${v}"
+                    style="background:${ticketColor(v)}"
+                    onkeydown="handleTab(event, ${pi}, ${ti}, 'ticket')"
+                    oninput="updateTicket(${pi},${ti},this)">
+            </div>`;
+        });
+
+        html += `
+        <hr>
+        <b>🏠 Dworce</b><br>
+
+        <input type="number"
+            min="0" max="3"
+            value="${p.stations}"
+            oninput="updateStation(${pi},this)">
+
+        <span>+${stationBonus(p.stations)} pkt</span>
+
+        <br><br>
+
+        <label>
+            <input type="checkbox"
+                ${p.express ? "checked" : ""}
+                onchange="toggleExpress(${pi},this)">
+            🚄 Express (+10)
+        </label>
+
+        </div>`;
+
+        board.innerHTML += html;
+    });
+}
+
+/* ----------------- SCORE ----------------- */
+
+function recalc() {
+
+    let html = "<h2>Wyniki</h2>";
+
+    const ranking = players.map(p => {
+
+        const routes = p.routes.reduce((a,v)=>a+routePoints(v),0);
+        const tickets = p.tickets.reduce((a,v)=>a+(parseInt(v)||0),0);
+        const stations = stationBonus(p.stations);
+        const express = p.express ? 10 : 0;
+
+        return {
+            name: p.name,
+            total: routes + tickets + stations + express,
+            routes, tickets, stations, express
+        };
+    });
+
+    ranking.sort((a,b)=>b.total-a.total);
+
+    ranking.forEach((p,i)=>{
+        html += `
+        <div>
+            ${i+1}. <b>${p.name}</b> — ${p.total} pkt
+            (🚆 ${p.routes} | 🎫 ${p.tickets} | 🏠 ${p.stations} | 🚄 ${p.express})
+        </div>`;
+    });
+
+    document.getElementById("results").innerHTML = html;
+}
+
+render();
+recalc();
+
+</script>
+
+</body>
+</html>
