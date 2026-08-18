@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Aparat → PDF A4 — wysoka jakość</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body{
+    margin:0;
+    background:#222;
+    color:white;
+    font-family:Arial,sans-serif;
+    text-align:center;
+}
+
+h2{
+    margin:15px;
+}
+
+video{
+    width:95vw;
+    max-height:70vh;
+    border-radius:10px;
+    background:black;
+}
+
+button{
+    width:90%;
+    max-width:500px;
+    font-size:24px;
+    padding:18px;
+    margin:12px;
+    border:none;
+    border-radius:10px;
+    cursor:pointer;
+}
+
+#capture{
+    background:#2ecc71;
+    color:white;
+}
+
+#start{
+    background:#3498db;
+    color:white;
+}
+
+#info{
+    color:#aaa;
+    font-size:16px;
+    margin:10px;
+}
+
+canvas{
+    display:none;
+}
+</style>
+
+</head>
+
+<body>
+
+<h2>Aparat → PDF A4</h2>
+
+<video id="video" autoplay playsinline></video>
+
+<div id="info">
+    Kamera nieuruchomiona
+</div>
+
+<br>
+
+<button id="start">
+    Uruchom kamerę
+</button>
+
+<button id="capture">
+    Zrób zdjęcie i zapisz PDF
+</button>
+
+<canvas id="canvas"></canvas>
+
+<script>
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const info = document.getElementById("info");
+
+let stream = null;
+
+
+/* ================================
+   URUCHOMIENIE KAMERY
+   ================================ */
+
+async function startCamera(){
+
+    if(stream){
+        return;
+    }
+
+    try{
+
+        stream = await navigator.mediaDevices.getUserMedia({
+
+            video: {
+                facingMode: {
+                    ideal: "environment"
+                },
+
+                // Żądamy bardzo wysokiej rozdzielczości.
+                // Jeśli urządzenie jej nie obsługuje,
+                // przeglądarka wybierze najlepszą dostępną.
+                width: {
+                    ideal: 3840
+                },
+
+                height: {
+                    ideal: 2160
+                },
+
+                // Preferuj tylną kamerę wysokiej jakości.
+                aspectRatio: {
+                    ideal: 16 / 9
+                },
+
+                frameRate: {
+                    ideal: 30,
+                    max: 60
+                }
+            },
+
+            audio:false
+
+        });
+
+        video.srcObject = stream;
+
+        await video.play();
+
+        // Faktyczne parametry wybranej kamery
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
+
+        info.textContent =
+            "Rozdzielczość kamery: " +
+            (settings.width || "?") +
+            " × " +
+            (settings.height || "?");
+
+        console.log("Parametry kamery:", settings);
+
+    }catch(e){
+
+        console.error(e);
+
+        alert(
+            "Nie udało się uruchomić kamery.\n\n" +
+            e.message
+        );
+
+    }
+
+}
+
+
+/* ================================
+   NAZWA PLIKU
+   ================================ */
+
+function fileName(){
+
+    const d = new Date();
+
+    const p = (v) =>
+        String(v).padStart(2,"0");
+
+    return d.getFullYear()+"-"+
+           p(d.getMonth()+1)+"-"+
+           p(d.getDate())+"_"+
+           p(d.getHours())+"-"+
+           p(d.getMinutes())+"-"+
+           p(d.getSeconds())+".pdf";
+}
+
+
+/* ================================
+   ROBIENIE ZDJĘCIA
+   ================================ */
+
+async function makePDF(){
+
+    if(!stream){
+
+        alert("Najpierw uruchom kamerę.");
+
+        return;
+    }
+
+    /*
+     * Pobieramy rzeczywistą rozdzielczość
+     * obrazu z kamery.
+     */
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+
+    if(!width || !height){
+
+        alert("Kamera nie jest jeszcze gotowa.");
+
+        return;
+    }
+
+    /*
+     * Canvas ma dokładnie taką samą rozdzielczość
+     * jak obraz z kamery.
+     */
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d", {
+        alpha:false,
+        desynchronized:false
+    });
+
+    /*
+     * Maksymalna jakość interpolacji.
+     */
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    /*
+     * Rysujemy pełną rozdzielczość zdjęcia.
+     */
+    ctx.drawImage(
+        video,
+        0,
+        0,
+        width,
+        height
+    );
+
+
+    /*
+     * JPEG z maksymalną jakością.
+     *
+     * 1.0 = maksymalna jakość JPEG.
+     */
+    const img = canvas.toDataURL(
+        "image/jpeg",
+        1.0
+    );
+
+
+    const { jsPDF } = window.jspdf;
+
+
+    /*
+     * A4.
+     *
+     * 300 DPI daje bardzo dobrą jakość
+     * wydruku dokumentów.
+     */
+    const pdf = new jsPDF({
+
+        orientation:
+            width >= height
+                ? "landscape"
+                : "portrait",
+
+        unit:"mm",
+
+        format:"a4",
+
+        compress:false
+
+    });
+
+
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+
+
+    /*
+     * Margines.
+     */
+    const margin = 5;
+
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+
+
+    /*
+     * Dopasowanie zdjęcia do A4
+     * bez deformowania obrazu.
+     */
+    const ratio = Math.min(
+        maxW / width,
+        maxH / height
+    );
+
+    const w = width * ratio;
+    const h = height * ratio;
+
+
+    const x = (pageW - w) / 2;
+    const y = (pageH - h) / 2;
+
+
+    /*
+     * Dodanie zdjęcia do PDF
+     * z maksymalną jakością JPEG.
+     */
+    pdf.addImage(
+        img,
+        "JPEG",
+        x,
+        y,
+        w,
+        h,
+        undefined,
+        "NONE"
+    );
+
+
+    /*
+     * Zapis pliku.
+     */
+    pdf.save(fileName());
+
+}
+
+
+/* ================================
+   PRZYCISKI
+   ================================ */
+
+document
+    .getElementById("start")
+    .onclick = startCamera;
+
+document
+    .getElementById("capture")
+    .onclick = makePDF;
+
+</script>
+
+</body>
+</html>
